@@ -28,46 +28,47 @@ from collections import OrderedDict
 
 import numpy as np
 import matplotlib.pylab as plt
-%matplotlib inline
+
 
 from scipy import io as sio
 import sklearn.metrics as sm
 from sklearn.svm import LinearSVC
 
-from keras.utils import np_utils
+import tensorflow as tf
+#from tf.keras.utils import np_utils
 
 # TCN imports 
-import tf_models, datasets, utils, metrics
+import tf2_models, datasets, utils, metrics, jigsaw_sequence
 from utils import imshow_
 
 
 # ---------- Directories & User inputs --------------
 # Location of data/features folder
-base_dir = os.path.expanduser("~/TCN_release/")
+base_dir = os.path.expanduser("~/temporal_action_detection/TemporalConvolutionalNetworks/")
 
 save_predictions = [False, True][1]
 viz_predictions = [False, True][1]
 viz_weights = [False, True][0]
 
 # Set dataset and action label granularity (if applicable)
-dataset = ["50Salads", "JIGSAWS", "MERL", "GTEA"][0]
+dataset = ["50Salads", "JIGSAWS", "MERL", "GTEA"][1]
 granularity = ["eval", "mid"][1]
 sensor_type = ["video", "sensors"][0]
 
 # Set model and parameters
-model_type = ["SVM", "LSTM", "LC-SC-CRF", "tCNN",  "DilatedTCN", "ED-TCN", "TDNN"][0]
+model_type = ["SVM", "LSTM", "LC-SC-CRF", "tCNN",  "DilatedTCN", "ED-TCN", "TDNN"][-2]
 # causal or acausal? (If acausal use Bidirectional LSTM)
 causal = [False, True][0]
 
 # How many latent states/nodes per layer of network
 # Only applicable to the TCNs. The ECCV and LSTM  model suses the first element from this list.
-n_nodes = [64, 96]
+n_nodes = [64, 128]#[128, 256, 512]
 nb_epoch = 200
 video_rate = 3
-conv = {'50Salads':25, "JIGSAWS":20, "MERL":5, "GTEA":25}[dataset]
+conv = {'50Salads':25, "JIGSAWS":30, "MERL":5, "GTEA":25}[dataset]
 
 # Which features for the given dataset
-features = "SpatialCNN"
+features = "VideoSwin"
 bg_class = 0 if dataset is not "JIGSAWS" else None
 
 if dataset == "50Salads":
@@ -83,10 +84,11 @@ if 1:
 
     # Load data for each split
     for split in data.splits:
+        print(split)
         if sensor_type=="video":
-            feature_type = "A" if model_type != "SVM" else "X"
+            feature_type = "S" if model_type != "SVM" else "X"
         else:
-            feature_type = "S"
+            feature_type = "A"
 
         X_train, y_train, X_test, y_test = data.load_split(features, split=split, 
                                                             sample_rate=video_rate, 
@@ -100,10 +102,7 @@ if 1:
         test_lengths = [x.shape[0] for x in X_test]
         n_train = len(X_train)
         n_test = len(X_test)
-
         n_feat = data.n_features
-        print("# Feat:", n_feat)
-
         # ------------------ Models ----------------------------
         if model_type == "SVM":
             svm = LinearSVC()
@@ -118,8 +117,8 @@ if 1:
         # --------- CVPR model ----------
         elif model_type in ["tCNN", "ED-TCN", "DilatedTCN", "TDNN", "LSTM"]:
             # Go from y_t = {1...C} to one-hot vector (e.g. y_t = [0, 0, 1, 0])
-            Y_train = [np_utils.to_categorical(y, n_classes) for y in y_train]
-            Y_test = [np_utils.to_categorical(y, n_classes) for y in y_test]
+            Y_train = [tf.keras.utils.to_categorical(y, n_classes) for y in y_train]
+            Y_test = [tf.keras.utils.to_categorical(y, n_classes) for y in y_test]
 
             # In order process batches simultaneously all data needs to be of the same length
             # So make all same length and mask out the ends of each.
@@ -128,29 +127,30 @@ if 1:
             max_len = int(np.ceil(max_len / (2**n_layers)))*2**n_layers
             print("Max length:", max_len)
 
-            X_train_m, Y_train_, M_train = utils.mask_data(X_train, Y_train, max_len, mask_value=-1)
-            X_test_m, Y_test_, M_test = utils.mask_data(X_test, Y_test, max_len, mask_value=-1)
-
+            jigsaws_data_sequence = jigsaw_sequence.JIGSAWS_DataGen(batch_size=1, x_set=X_train, y_set=Y_train, max_len=max_len)
+            #X_train_m, Y_train_, M_train = utils.mask_data(X_train, Y_train, max_len, mask_value=-1)
+            #X_test_m, Y_test_, M_test = utils.mask_data(X_test, Y_test, max_len, mask_value=-1)
             if model_type == "tCNN":
                 model, param_str = tf_models.temporal_convs_linear(n_nodes[0], conv, n_classes, n_feat, 
                                                     max_len, causal=causal, return_param_str=True)
             elif model_type == "ED-TCN":
-                model, param_str = tf_models.ED_TCN(n_nodes, conv, n_classes, n_feat, max_len, causal=causal, 
-                                        activation='norm_relu', return_param_str=True) 
+                model  = tf2_models.ED_TCN(n_nodes, conv, n_classes, n_feat, max_len, causal=causal,
+                                                    activation='norm_relu', return_param_str=True)
                 # model, param_str = tf_models.ED_TCN_atrous(n_nodes, conv, n_classes, n_feat, max_len, 
                                     # causal=causal, activation='norm_relu', return_param_str=True)                 
             elif model_type == "TDNN":
                 model, param_str = tf_models.TimeDelayNeuralNetwork(n_nodes, conv, n_classes, n_feat, max_len, 
                                    causal=causal, activation='tanh', return_param_str=True)
             elif model_type == "DilatedTCN":
-                model, param_str = tf_models.Dilated_TCN(n_feat, n_classes, n_nodes[0], L, B, max_len=max_len, 
+                model, param_str = tf2_models.Dilated_TCN(n_feat, n_classes, n_nodes[0], L, B, max_len=max_len,
                                         causal=causal, return_param_str=True)
             elif model_type == "LSTM":
                 model, param_str = tf_models.BidirLSTM(n_nodes[0], n_classes, n_feat, causal=causal, return_param_str=True)
-
-            model.fit(X_train_m, Y_train_, nb_epoch=nb_epoch, batch_size=8,
-                        verbose=1, sample_weight=M_train[:,:,0]) 
-
+            #print(next(ite))
+            model.fit(x=jigsaws_data_sequence, epochs=1, verbose=1)
+            #model.fit(x=X_train_m, y=Y_train_, batch_size=1, )
+            #odel.fit(X_train_m, Y_train_, epochs=nb_epoch, batch_size=1,
+             #        verbose=1, sample_weight=M_train[:, :, 0])
             AP_train = model.predict(X_train_m, verbose=0)
             AP_test = model.predict(X_test_m, verbose=0)
             AP_train = utils.unmask(AP_train, M_train)
