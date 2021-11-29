@@ -69,7 +69,8 @@ class Dataset:
             file_test = open( self.base_dir+"splits/{}/{}/test.txt".format(self.name, split)).readlines()
         else:
             file_train = open(self.base_dir+"splits/{}/{}/{}/train.txt".format(self.name, self.activity, split)).readlines()
-            file_test = open( self.base_dir+"splits/{}/{}/{}/test.txt".format(self.name, self.activity, split)).readlines()         
+            file_test = open( self.base_dir+"splits/{}/{}/{}/test.txt".format(self.name, self.activity, split)).readlines()
+        #print(file_train)
         file_train = [f.strip() for f in file_train]
         file_test = [f.strip() for f in file_test]     
 
@@ -85,20 +86,21 @@ class Dataset:
         files_features = self.get_files(dir_features, split)
 
         X_all, Y_all = [], []
+        video_len = []
         for f in files_features:        
             if "Split_" in os.listdir(dir_features)[-1]:
                 data_tmp = sio.loadmat( closest_file("{}{}/{}".format(dir_features,split, f)) )
             else:
                 data_tmp = sio.loadmat( closest_file("{}/{}".format(dir_features, f)) )
+            #print(f, data_tmp[feature_type].shape[0])
             X_all += [ data_tmp[feature_type].astype(np.float32) ]
             Y_all += [ np.squeeze(data_tmp["Y"]) ]
-
+        #print(video_len)
         # Make sure axes are correct (TxF not FxT for F=feat, T=time)
         if X_all[0].shape[0]!=Y_all[0].shape[0]:
             X_all = [x.T for x in X_all]
         self.n_features = X_all[0].shape[1]
-        self.n_classes = len(np.unique(np.hstack(Y_all)))
-
+        self.n_classes = len(np.unique(np.concatenate(Y_all, axis=0)))
         # Make sure labels are sequential
         if self.n_classes != np.hstack(Y_all).max()+1:
             Y_all = utils.remap_labels(Y_all)
@@ -107,7 +109,6 @@ class Dataset:
         # Subsample the data
         if sample_rate > 1:
             X_all, Y_all = utils.subsample(X_all, Y_all, sample_rate, dim=0)
-
         # ------------Train/test Splits---------------------------
         # Split data/labels into train/test splits
         fid2idx = self.fid2idx(files_features)
@@ -119,6 +120,5 @@ class Dataset:
 
         if len(X_train)==0:
             print("Error loading data")
-
         return X_train, y_train, X_test, y_test
         
