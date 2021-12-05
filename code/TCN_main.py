@@ -38,13 +38,14 @@ import tensorflow as tf
 #from tf.keras.utils import np_utils
 
 # TCN imports 
-import tf2_models, datasets, utils, metrics, jigsaw_sequence
+import tf2_models, datasets, utils, metrics, jigsaws_dataloader
 from utils import imshow_
 
+import warnings
 
 # ---------- Directories & User inputs --------------
 # Location of data/features folder
-base_dir = os.path.expanduser("~/temporal_action_detection/TemporalConvolutionalNetworks/")
+base_dir = os.path.expanduser("~/temporal_action_detection/TCN/")
 
 save_predictions = [False, True][1]
 viz_predictions = [False, True][1]
@@ -65,7 +66,7 @@ causal = [False, True][0]
 n_nodes = [64, 128]#[128, 256, 512]
 nb_epoch = 200
 video_rate = 3
-conv = {'50Salads':25, "JIGSAWS":30, "MERL":5, "GTEA":25}[dataset]
+conv = {'50Salads':25, "JIGSAWS":20, "MERL":5, "GTEA":25}[dataset]
 
 # Which features for the given dataset
 features = "VideoSwin"
@@ -74,14 +75,17 @@ bg_class = 0 if dataset is not "JIGSAWS" else None
 if dataset == "50Salads":
     features = "SpatialCNN_" + granularity
 
+warnings.filterwarnings('ignore')
+
 # ------------------------------------------------------------------
 # Evaluate using different filter lengths
 if 1:
 # for conv in [5, 10, 15, 20]:
     # Initialize dataset loader & metrics
-    data = datasets.Dataset(dataset, base_dir)
-    trial_metrics = metrics.ComputeMetrics(overlap=.1, bg_class=bg_class)
 
+    trial_metrics = metrics.ComputeMetrics(overlap=.1, bg_class=bg_class)
+    """
+    data = datasets.Dataset(dataset, base_dir)
     # Load data for each split
     for split in data.splits:
         print(split)
@@ -103,159 +107,169 @@ if 1:
         n_train = len(X_train)
         n_test = len(X_test)
         n_feat = data.n_features
-        # ------------------ Models ----------------------------
-        if model_type == "SVM":
-            svm = LinearSVC()
-            svm.fit(np.vstack(X_train), np.hstack(y_train))
-            P_test = [svm.predict(x) for x in X_test]
+    """
 
-            # AP_x contains the per-frame probabilities (or class) for each class
-            AP_train = [svm.decision_function(x) for x in X_train]
-            AP_test = [svm.decision_function(x) for x in X_test]
-            param_str = "SVM"
+    train_lengths = []
+    main_path = "{}/{}/{}/{}".format(base_dir, "features",dataset, features)
+    for f in os.listdir(main_path):
+        f_name = "{}/{}".format(main_path, f)
+        t = sio.loadmat(f_name)
+        train_lengths.append(t['S'].shape[0])
 
-        # --------- CVPR model ----------
-        elif model_type in ["tCNN", "ED-TCN", "DilatedTCN", "TDNN", "LSTM"]:
-            # Go from y_t = {1...C} to one-hot vector (e.g. y_t = [0, 0, 1, 0])
-            Y_train = [tf.keras.utils.to_categorical(y, n_classes) for y in y_train]
-            Y_test = [tf.keras.utils.to_categorical(y, n_classes) for y in y_test]
+    n_feat = 37632
+    n_classes = 10
 
-            # In order process batches simultaneously all data needs to be of the same length
-            # So make all same length and mask out the ends of each.
-            n_layers = len(n_nodes)
-            max_len = max(np.max(train_lengths), np.max(test_lengths))
-            max_len = int(np.ceil(max_len / (2**n_layers)))*2**n_layers
-            print("Max length:", max_len)
+    # ------------------ Models ----------------------------
+    if model_type == "SVM":
+        svm = LinearSVC()
+        svm.fit(np.vstack(X_train), np.hstack(y_train))
+        P_test = [svm.predict(x) for x in X_test]
 
-            jigsaws_data_sequence = jigsaw_sequence.JIGSAWS_DataGen(batch_size=1, x_set=X_train, y_set=Y_train, max_len=max_len)
-            #X_train_m, Y_train_, M_train = utils.mask_data(X_train, Y_train, max_len, mask_value=-1)
-            #X_test_m, Y_test_, M_test = utils.mask_data(X_test, Y_test, max_len, mask_value=-1)
-            if model_type == "tCNN":
-                model, param_str = tf_models.temporal_convs_linear(n_nodes[0], conv, n_classes, n_feat, 
-                                                    max_len, causal=causal, return_param_str=True)
-            elif model_type == "ED-TCN":
-                model  = tf2_models.ED_TCN(n_nodes, conv, n_classes, n_feat, max_len, causal=causal,
-                                                    activation='norm_relu', return_param_str=True)
-                # model, param_str = tf_models.ED_TCN_atrous(n_nodes, conv, n_classes, n_feat, max_len, 
-                                    # causal=causal, activation='norm_relu', return_param_str=True)                 
-            elif model_type == "TDNN":
-                model, param_str = tf_models.TimeDelayNeuralNetwork(n_nodes, conv, n_classes, n_feat, max_len, 
-                                   causal=causal, activation='tanh', return_param_str=True)
-            elif model_type == "DilatedTCN":
-                model, param_str = tf2_models.Dilated_TCN(n_feat, n_classes, n_nodes[0], L, B, max_len=max_len,
-                                        causal=causal, return_param_str=True)
-            elif model_type == "LSTM":
-                model, param_str = tf_models.BidirLSTM(n_nodes[0], n_classes, n_feat, causal=causal, return_param_str=True)
-            #print(next(ite))
-            model.fit(x=jigsaws_data_sequence, epochs=1, verbose=1)
-            #model.fit(x=X_train_m, y=Y_train_, batch_size=1, )
-            #odel.fit(X_train_m, Y_train_, epochs=nb_epoch, batch_size=1,
-             #        verbose=1, sample_weight=M_train[:, :, 0])
-            AP_train = model.predict(X_train_m, verbose=0)
-            AP_test = model.predict(X_test_m, verbose=0)
-            AP_train = utils.unmask(AP_train, M_train)
-            AP_test = utils.unmask(AP_test, M_test)
+        # AP_x contains the per-frame probabilities (or class) for each class
+        AP_train = [svm.decision_function(x) for x in X_train]
+        AP_test = [svm.decision_function(x) for x in X_test]
+        param_str = "SVM"
 
-            P_train = [p.argmax(1) for p in AP_train]
-            P_test = [p.argmax(1) for p in AP_test]
-            
-        # --------- ICRA model ----------
-        elif model_type == 'LC-SC-CRF':
-            try:
-                from LCTM import models
-            except:
-                print("Error: LCTM not installed")
-                print("For more info: https://github.com/colincsl/LCTM")
-                break
-            X_train_T = [x.T for x in X_train]
-            X_test_T = [x.T for x in X_test]
-            n_latent_per_class = 4 
-            skip = conv
-            model = models.LatentConvModel(n_latent=n_latent_per_class, conv_len=conv, skip=skip, prior=True, debug=True)
-            model.fit(X_train_T, y_train, n_iter=200, learning_rate=.1, pretrain=True, verbose=True)
-            model.filter_len = conv//2+1 if conv>1 else 1
-            P_test = model.predict(X_test_T, inference="filtered")
-            AP_train = [x.T for x in model.decision_function(X_train_T)]
-            AP_test = [x.T for x in model.decision_function(X_test_T)]
+    # --------- CVPR model ----------
+    elif model_type in ["tCNN", "ED-TCN", "DilatedTCN", "TDNN", "LSTM"]:
+        # Go from y_t = {1...C} to one-hot vector (e.g. y_t = [0, 0, 1, 0])
+        #Y_train = [tf.keras.utils.to_categorical(y, n_classes) for y in y_train]
+        #Y_test = [tf.keras.utils.to_categorical(y, n_classes) for y in y_test]
 
-            param_str = "LC-SC-CRF_C{}_S{}_I{}".format(conv, skip, model.inference_type)
+        # In order process batches simultaneously all data needs to be of the same length
+        # So make all same length and mask out the ends of each.
+        n_layers = len(n_nodes)
+        max_len = np.max(train_lengths)
+        max_len = int(np.ceil(max_len / (2**n_layers)))*2**n_layers
+        print("Max length:", max_len)
 
-        # --------- DTW baseline model ----------
-        elif model_type == "DTW":
-            try:
-                import DTW
-            except:
-                print("Error: DTW not installed")
-                print("For more info: https://github.com/colincsl/LCTM")
-                break        
+        data_generator = jigsaws_dataloader.JIGSAWS_DataLoader(batch_size=1, dataset=dataset, base_dir=base_dir,
+                                                              features_from=features, max_len=max_len, sample_rate=1)
 
-            P_test = []
-            for i in range(n_test):
-                dists, preds = [], []
-                for j in range(n_train):
-                    dist, c = DTW(X_train[j], X_test[i], output_correspondences=True)
-                    dists += [dist]
-                    preds += [y_train[j][c]]
-                idx_best = np.argmin(dists)
-                P_test += [preds[idx_best]]
+        if model_type == "tCNN":
+            model, param_str = tf_models.temporal_convs_linear(n_nodes[0], conv, n_classes, n_feat,
+                                                max_len, causal=causal, return_param_str=True)
+        elif model_type == "ED-TCN":
+            model  = tf2_models.ED_TCN(n_nodes, conv, n_classes, n_feat, max_len, causal=causal,
+                                                activation='norm_relu', return_param_str=True)
+            # model, param_str = tf_models.ED_TCN_atrous(n_nodes, conv, n_classes, n_feat, max_len,
+                                # causal=causal, activation='norm_relu', return_param_str=True)
+        elif model_type == "TDNN":
+            model, param_str = tf_models.TimeDelayNeuralNetwork(n_nodes, conv, n_classes, n_feat, max_len,
+                               causal=causal, activation='tanh', return_param_str=True)
+        elif model_type == "DilatedTCN":
+            model, param_str = tf2_models.Dilated_TCN(n_feat, n_classes, n_nodes[0], L, B, max_len=max_len,
+                                    causal=causal, return_param_str=True)
+        elif model_type == "LSTM":
+            model, param_str = tf_models.BidirLSTM(n_nodes[0], n_classes, n_feat, causal=causal, return_param_str=True)
+        #print(next(ite))
+        model.fit(x=data_generator, epochs=1, verbose=1)
+        #model.fit(x=X_train_m, y=Y_train_, batch_size=1, )
+        #odel.fit(X_train_m, Y_train_, epochs=nb_epoch, batch_size=1,
+         #        verbose=1, sample_weight=M_train[:, :, 0])
+        AP_train = model.predict(X_train_m, verbose=0)
+        AP_test = model.predict(X_test_m, verbose=0)
+        AP_train = utils.unmask(AP_train, M_train)
+        AP_test = utils.unmask(AP_test, M_test)
 
-        else:
-            print("Model not available:", model_type)
+        P_train = [p.argmax(1) for p in AP_train]
+        P_test = [p.argmax(1) for p in AP_test]
 
-        param_str = "_".join([granularity, sensor_type, param_str])
-        print(param_str)
+    # --------- ICRA model ----------
+    elif model_type == 'LC-SC-CRF':
+        try:
+            from LCTM import models
+        except:
+            print("Error: LCTM not installed")
+            print("For more info: https://github.com/colincsl/LCTM")
+        X_train_T = [x.T for x in X_train]
+        X_test_T = [x.T for x in X_test]
+        n_latent_per_class = 4
+        skip = conv
+        model = models.LatentConvModel(n_latent=n_latent_per_class, conv_len=conv, skip=skip, prior=True, debug=True)
+        model.fit(X_train_T, y_train, n_iter=200, learning_rate=.1, pretrain=True, verbose=True)
+        model.filter_len = conv//2+1 if conv>1 else 1
+        P_test = model.predict(X_test_T, inference="filtered")
+        AP_train = [x.T for x in model.decision_function(X_train_T)]
+        AP_test = [x.T for x in model.decision_function(X_test_T)]
 
-        # --------- Metrics ----------    
-        trial_metrics.add_predictions(split, P_test, y_test)       
-        trial_metrics.print_trials()
-        print()
+        param_str = "LC-SC-CRF_C{}_S{}_I{}".format(conv, skip, model.inference_type)
 
-        # ----- Save predictions -----
-        if save_predictions:
-            dir_out = os.path.expanduser(base_dir+"/predictions/{}/{}/".format(dataset,param_str))
+    # --------- DTW baseline model ----------
+    elif model_type == "DTW":
+        try:
+            import DTW
+        except:
+            print("Error: DTW not installed")
+            print("For more info: https://github.com/colincsl/LCTM")
 
-            # Make sure folder exists
-            if not os.path.isdir(dir_out):
-                os.makedirs(dir_out)
+        P_test = []
+        for i in range(n_test):
+            dists, preds = [], []
+            for j in range(n_train):
+                dist, c = DTW(X_train[j], X_test[i], output_correspondences=True)
+                dists += [dist]
+                preds += [y_train[j][c]]
+            idx_best = np.argmin(dists)
+            P_test += [preds[idx_best]]
 
-            out = {"P":P_test, "Y":y_test, "S":AP_test}
-            sio.savemat( dir_out+"/{}.mat".format(split), out)      
+    else:
+        print("Model not available:", model_type)
 
-        # ---- Viz predictions -----
-        if viz_predictions:
-            max_classes = data.n_classes - 1
-            # # Output all truth/prediction pairs
-            plt.figure(split, figsize=(20,10))
-            P_test_ = np.array(P_test)/float(n_classes-1)
-            y_test_ = np.array(y_test)/float(n_classes-1)
-            for i in range(len(y_test)):
-                P_tmp = np.vstack([y_test_[i], P_test_[i]])
-                plt.subplot(n_test,1,i+1); imshow_(P_tmp, vmin=0, vmax=1)
-                plt.xticks([])
-                plt.yticks([])
-                acc = np.mean(y_test[i]==P_test[i])*100
-                plt.ylabel("{:.01f}".format(acc))
-                # plt.title("Acc: {:.03}%".format(100*np.mean(P_test[i]==y_test[i])))
+    param_str = "_".join([granularity, sensor_type, param_str])
+    print(param_str)
 
-        # ---- Viz weights -----
-        if viz_weights and model_type is "TCN":
+    # --------- Metrics ----------
+    trial_metrics.add_predictions(split, P_test, y_test)
+    trial_metrics.print_trials()
+    print()
+
+    # ----- Save predictions -----
+    if save_predictions:
+        dir_out = os.path.expanduser(base_dir+"/predictions/{}/{}/".format(dataset,param_str))
+
+        # Make sure folder exists
+        if not os.path.isdir(dir_out):
+            os.makedirs(dir_out)
+
+        out = {"P":P_test, "Y":y_test, "S":AP_test}
+        sio.savemat( dir_out+"/{}.mat".format(split), out)
+
+    # ---- Viz predictions -----
+    if viz_predictions:
+        max_classes = data.n_classes - 1
+        # # Output all truth/prediction pairs
+        plt.figure(split, figsize=(20,10))
+        P_test_ = np.array(P_test)/float(n_classes-1)
+        y_test_ = np.array(y_test)/float(n_classes-1)
+        for i in range(len(y_test)):
+            P_tmp = np.vstack([y_test_[i], P_test_[i]])
+            plt.subplot(n_test,1,i+1); imshow_(P_tmp, vmin=0, vmax=1)
+            plt.xticks([])
+            plt.yticks([])
+            acc = np.mean(y_test[i]==P_test[i])*100
+            plt.ylabel("{:.01f}".format(acc))
+            # plt.title("Acc: {:.03}%".format(100*np.mean(P_test[i]==y_test[i])))
+
+    # ---- Viz weights -----
+    if viz_weights and model_type is "TCN":
+        # Output weights at the first layer
+        plt.figure(2, figsize=(15,15))
+        ws = model.get_weights()[0]
+        for i in range(min(36, len(ws.T))):
+            plt.subplot(6,6,i+1)
+            # imshow_(model.get_weights()[0][i][:,:,0]+model.get_weights()[1][i])
+            imshow_(np.squeeze(ws[:,:,:,i]).T)
             # Output weights at the first layer
-            plt.figure(2, figsize=(15,15))
-            ws = model.get_weights()[0]
+
+        for l in range(2*n_layers):
+            plt.figure(l+1, figsize=(15,15))
+            ws = model.get_weights()[l*2]
             for i in range(min(36, len(ws.T))):
                 plt.subplot(6,6,i+1)
                 # imshow_(model.get_weights()[0][i][:,:,0]+model.get_weights()[1][i])
                 imshow_(np.squeeze(ws[:,:,:,i]).T)
                 # Output weights at the first layer
-
-            for l in range(2*n_layers):
-                plt.figure(l+1, figsize=(15,15))
-                ws = model.get_weights()[l*2]
-                for i in range(min(36, len(ws.T))):
-                    plt.subplot(6,6,i+1)
-                    # imshow_(model.get_weights()[0][i][:,:,0]+model.get_weights()[1][i])
-                    imshow_(np.squeeze(ws[:,:,:,i]).T)
-                    # Output weights at the first layer
 
     print()
     trial_metrics.print_scores()
