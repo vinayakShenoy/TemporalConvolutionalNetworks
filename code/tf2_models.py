@@ -54,6 +54,8 @@ def ED_TCN(n_nodes, conv_len, n_classes, n_feat, max_len,
         model = tf.keras.layers.UpSampling1D(2)(model)
         model = tf.keras.layers.Convolution1D(n_nodes[-i - 1], conv_len, padding='same')(model)
         model = tf.keras.layers.SpatialDropout1D(0.3)(model)
+        model = tf.keras.layers.Activation('relu')(model)
+        model = tf.keras.layers.Lambda(channel_normalization, name="decoder_Norm_{}".format(i))(model)
 
     model = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(n_classes, activation="softmax"))(model)
 
