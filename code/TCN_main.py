@@ -38,7 +38,7 @@ import tensorflow as tf
 #from tf.keras.utils import np_utils
 
 # TCN imports 
-import tf2_models, datasets, utils, metrics, jigsaws_dataloader
+import tf2_models, tf_models, datasets, utils, metrics, jigsaws_dataloader
 from utils import imshow_
 
 import warnings
@@ -69,7 +69,7 @@ video_rate = 3
 conv = {'50Salads':25, "JIGSAWS":20, "MERL":5, "GTEA":25}[dataset]
 
 # Which features for the given dataset
-features = "VideoSwin"
+features = "VideoSwin_K600"
 bg_class = 0 if dataset is not "JIGSAWS" else None
 
 if dataset == "50Salads":
@@ -110,13 +110,15 @@ if 1:
     """
 
     train_lengths = []
+    n_feat = None
     main_path = "{}/{}/{}/{}".format(base_dir, "features",dataset, features)
     for f in os.listdir(main_path):
         f_name = "{}/{}".format(main_path, f)
         t = sio.loadmat(f_name)
         train_lengths.append(t['S'].shape[0])
+        if not n_feat:
+            n_feat = t['S'].shape[1]
 
-    n_feat = 37632
     n_classes = 10
 
     # ------------------ Models ----------------------------
@@ -143,15 +145,21 @@ if 1:
         max_len = int(np.ceil(max_len / (2**n_layers)))*2**n_layers
         print("Max length:", max_len)
 
-        data_generator = jigsaws_dataloader.JIGSAWS_DataLoader(batch_size=1, dataset=dataset, base_dir=base_dir,
-                                                              features_from=features, max_len=max_len, sample_rate=1)
+        train_data_generator = jigsaws_dataloader.JIGSAWS_DataLoader(batch_size=1, dataset=dataset, base_dir=base_dir,
+                                                                     features_from=features, feature_len=n_feat,
+                                                                     max_len=max_len, sample_rate=1)
+        val_data_generator = jigsaws_dataloader.JIGSAWS_DataLoader(batch_size=1, dataset=dataset, base_dir=base_dir,
+                                                                    features_from=features, feature_len=n_feat,
+                                                                    max_len=max_len, sample_rate=1, is_train=False)
+
 
         if model_type == "tCNN":
             model, param_str = tf_models.temporal_convs_linear(n_nodes[0], conv, n_classes, n_feat,
                                                 max_len, causal=causal, return_param_str=True)
         elif model_type == "ED-TCN":
-            model  = tf2_models.ED_TCN(n_nodes, conv, n_classes, n_feat, max_len, causal=causal,
+            model = tf2_models.ED_TCN(n_nodes, conv, n_classes, n_feat, max_len, causal=causal,
                                                 activation='norm_relu', return_param_str=True)
+            #model.summary()
             # model, param_str = tf_models.ED_TCN_atrous(n_nodes, conv, n_classes, n_feat, max_len,
                                 # causal=causal, activation='norm_relu', return_param_str=True)
         elif model_type == "TDNN":
@@ -162,11 +170,11 @@ if 1:
                                     causal=causal, return_param_str=True)
         elif model_type == "LSTM":
             model, param_str = tf_models.BidirLSTM(n_nodes[0], n_classes, n_feat, causal=causal, return_param_str=True)
-        #print(next(ite))
-        model.fit(x=data_generator, epochs=1, verbose=1)
-        #model.fit(x=X_train_m, y=Y_train_, batch_size=1, )
-        #odel.fit(X_train_m, Y_train_, epochs=nb_epoch, batch_size=1,
-         #        verbose=1, sample_weight=M_train[:, :, 0])
+
+        model.fit(x=train_data_generator,
+                  validation_data=val_data_generator,
+                  epochs=50,
+                  verbose=1)
         AP_train = model.predict(X_train_m, verbose=0)
         AP_test = model.predict(X_test_m, verbose=0)
         AP_train = utils.unmask(AP_train, M_train)

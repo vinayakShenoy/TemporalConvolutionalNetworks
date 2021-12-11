@@ -5,15 +5,27 @@ import os
 import scipy.io as sio
 
 class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
-    def __init__(self, batch_size, dataset, base_dir, features_from, max_len, sample_rate):
+    def __init__(self,
+                 batch_size,
+                 dataset,
+                 base_dir,
+                 features_from,
+                 feature_len,
+                 max_len,
+                 sample_rate,
+                 is_train=True):
         self.sample_rate = sample_rate
         self.max_len = max_len
         self.batch_size = batch_size
         self.dataset = dataset
         self.base_dir = base_dir
-        self.features_from = features_from
+        if is_train:
+            self.features_from = features_from + "/train"
+        else:
+            self.features_from = features_from + "/val"
         self.filenames = os.listdir(self.base_dir+"features/{}/{}/".format(self.dataset, self.features_from))
         self.n_classes = 10
+        self.feature_len = feature_len
         self.on_epoch_end()
 
     def __len__(self):
@@ -22,7 +34,7 @@ class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
     def __getitem__(self, idx):
         main_dir = "{}/{}/{}/".format(self.base_dir, self.dataset, self.features_from)
         batch_filenames = self.filenames[idx * self.batch_size:(idx + 1) *self.batch_size]
-        X_ = np.empty((self.batch_size, self.max_len, 37632))
+        X_ = np.empty((self.batch_size, self.max_len, self.feature_len))
         Y_ = np.empty((self.batch_size, self.max_len, 1))
         M_ = np.empty((self.batch_size, self.max_len))
 
@@ -51,7 +63,7 @@ class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
         mask = np.zeros([self.max_len])
         l = X.shape[0]
         x_[:l] = X
-        y_[:l] = Y
+        y_[:l] = Y.transpose()
         mask[:l] = 1
         return x_, y_, mask[:]
 

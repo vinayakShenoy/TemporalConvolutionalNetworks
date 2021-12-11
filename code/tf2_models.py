@@ -41,14 +41,13 @@ def ED_TCN(n_nodes, conv_len, n_classes, n_feat, max_len,
 
     for i in range(n_layers):
         #if causal: model = tf.keras.layers.ZeroPadding1D(padding=(conv_len//2))
-        model = tf.keras.layers.Conv1D(n_nodes[i], conv_len)(model)    #n_nodes[i], conv_len, padding='same')(model)
+        model = tf.keras.layers.Conv1D(n_nodes[i], conv_len, padding='same')(model)    #n_nodes[i], conv_len, padding='same')(model)
         #if causal: model = tf.keras.layers.Cropping1D(())
         model = tf.keras.layers.SpatialDropout1D(0.3)(model)
 
         model = tf.keras.layers.Activation('relu')(model)
         model = tf.keras.layers.Lambda(channel_normalization, name="encoder_Norm_{}".format(i))(model)
-
-    model = tf.keras.layers.MaxPooling1D(2)(model)
+        model = tf.keras.layers.MaxPooling1D(2)(model)
 
     for i in range(n_layers):
         model = tf.keras.layers.UpSampling1D(2)(model)
@@ -60,7 +59,8 @@ def ED_TCN(n_nodes, conv_len, n_classes, n_feat, max_len,
     model = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(n_classes, activation="softmax"))(model)
 
     model = tf.keras.models.Model(inputs=inputs, outputs=model)
-    model.compile(loss=loss, optimizer=optimizer, sample_weight_mode="temporal")#, metrics=['accuracy'])
+    model.summary()
+    model.compile(loss=loss, optimizer=optimizer, sample_weight_mode="temporal", metrics=['accuracy'])#, metrics=['accuracy'])
 
     return model
     """

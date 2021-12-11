@@ -114,6 +114,7 @@ def ED_TCN(n_nodes, conv_len, n_classes, n_feat, max_len,
     model = TimeDistributed(Dense(n_classes, activation="softmax" ))(model)
     
     model = Model(input=inputs, output=model)
+    model.summary()
     model.compile(loss=loss, optimizer=optimizer, sample_weight_mode="temporal", metrics=['accuracy'])
 
     if return_param_str:
