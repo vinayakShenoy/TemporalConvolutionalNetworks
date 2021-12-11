@@ -69,11 +69,11 @@ video_rate = 3
 conv = {'50Salads':25, "JIGSAWS":20, "MERL":5, "GTEA":25}[dataset]
 
 # Which features for the given dataset
-features = "VideoSwin_K600"
+features_from = "VideoSwin_K600"
 bg_class = 0 if dataset is not "JIGSAWS" else None
 
 if dataset == "50Salads":
-    features = "SpatialCNN_" + granularity
+    features_from = "SpatialCNN_" + granularity
 
 warnings.filterwarnings('ignore')
 
@@ -109,16 +109,24 @@ if 1:
         n_feat = data.n_features
     """
 
-    train_lengths = []
+    lengths = []
     n_feat = None
-    main_path = "{}/{}/{}/{}".format(base_dir, "features",dataset, features)
-    for f in os.listdir(main_path):
-        f_name = "{}/{}".format(main_path, f)
+    train_path = "{}/{}/{}/{}/{}".format(base_dir, "features",dataset, features_from, "train")
+    for f in os.listdir(train_path):
+        f_name = "{}/{}".format(train_path, f)
         t = sio.loadmat(f_name)
-        train_lengths.append(t['S'].shape[0])
+        lengths.append(t['S'].shape[0])
         if not n_feat:
             n_feat = t['S'].shape[1]
 
+    val_path = "{}/{}/{}/{}/{}".format(base_dir, "features",dataset, features_from, "val")
+    for f in os.listdir(val_path):
+        f_name = "{}/{}".format(val_path, f)
+        t = sio.loadmat(f_name)
+        lengths.append(t['S'].shape[0])
+        if not n_feat:
+            n_feat = t['S'].shape[1]
+    #print(len(lengths))
     n_classes = 10
 
     # ------------------ Models ----------------------------
@@ -141,15 +149,15 @@ if 1:
         # In order process batches simultaneously all data needs to be of the same length
         # So make all same length and mask out the ends of each.
         n_layers = len(n_nodes)
-        max_len = np.max(train_lengths)
+        max_len = np.max(lengths)
         max_len = int(np.ceil(max_len / (2**n_layers)))*2**n_layers
         print("Max length:", max_len)
 
         train_data_generator = jigsaws_dataloader.JIGSAWS_DataLoader(batch_size=1, dataset=dataset, base_dir=base_dir,
-                                                                     features_from=features, feature_len=n_feat,
+                                                                     features_from=features_from, feature_len=n_feat,
                                                                      max_len=max_len, sample_rate=1)
         val_data_generator = jigsaws_dataloader.JIGSAWS_DataLoader(batch_size=1, dataset=dataset, base_dir=base_dir,
-                                                                    features_from=features, feature_len=n_feat,
+                                                                    features_from=features_from, feature_len=n_feat,
                                                                     max_len=max_len, sample_rate=1, is_train=False)
 
 

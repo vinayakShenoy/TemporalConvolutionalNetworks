@@ -24,6 +24,7 @@ class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
         else:
             self.features_from = features_from + "/val"
         self.filenames = os.listdir(self.base_dir+"features/{}/{}/".format(self.dataset, self.features_from))
+        print(self.filenames)
         self.n_classes = 10
         self.feature_len = feature_len
         self.on_epoch_end()
@@ -37,7 +38,6 @@ class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
         X_ = np.empty((self.batch_size, self.max_len, self.feature_len))
         Y_ = np.empty((self.batch_size, self.max_len, 1))
         M_ = np.empty((self.batch_size, self.max_len))
-
         for i, filename in enumerate(batch_filenames):
             data = self.load_mat(self.base_dir+"features/{}/{}/{}".format(self.dataset, self.features_from, filename))
             x, y = data['S'], data['Y']
