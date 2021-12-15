@@ -59,7 +59,7 @@ def ED_TCN(n_nodes, conv_len, n_classes, n_feat, max_len,
     model = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(n_classes, activation="softmax"))(model)
 
     model = tf.keras.models.Model(inputs=inputs, outputs=model)
-    #model.summary()
+    model.summary()
     model.compile(loss=loss, optimizer=optimizer, sample_weight_mode="temporal", metrics=['accuracy'])#, metrics=['accuracy'])
 
     return model

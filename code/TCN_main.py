@@ -179,10 +179,10 @@ if 1:
         elif model_type == "LSTM":
             model, param_str = tf_models.BidirLSTM(n_nodes[0], n_classes, n_feat, causal=causal, return_param_str=True)
 
-        model.fit(x=train_data_generator,
-                  validation_data=val_data_generator,
-                  epochs=50,
-                  verbose=1)
+        #model.fit(x=train_data_generator,
+        #          validation_data=val_data_generator,
+        #          epochs=50,
+        #          verbose=1)
         AP_train = model.predict(X_train_m, verbose=0)
         AP_test = model.predict(X_test_m, verbose=0)
         AP_train = utils.unmask(AP_train, M_train)
