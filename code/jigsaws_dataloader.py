@@ -13,21 +13,20 @@ class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
                  feature_len,
                  max_len,
                  sample_rate,
+                 filenames,
                  is_train=True):
         self.sample_rate = sample_rate
         self.max_len = max_len
         self.batch_size = batch_size
         self.dataset = dataset
         self.base_dir = base_dir
-        if is_train:
-            self.features_from = features_from + "/train"
-        else:
-            self.features_from = features_from + "/val"
-        self.filenames = os.listdir(self.base_dir+"features/{}/{}/".format(self.dataset, self.features_from))
-        print(self.filenames)
+        self.features_from = features_from
+        self.filenames = filenames #os.listdir(self.base_dir+"features/{}/{}/".format(self.dataset, self.features_from))
         self.n_classes = 10
         self.feature_len = feature_len
-        self.on_epoch_end()
+        self.is_train = is_train
+        if self.is_train:
+            self.on_epoch_end()
 
     def __len__(self):
         return int(np.ceil(len(self.filenames) / self.batch_size))
@@ -50,7 +49,8 @@ class JIGSAWS_DataLoader(tf.keras.utils.Sequence):
         return X_, Y_, M_
 
     def on_epoch_end(self):
-        shuffle(self.filenames)
+        if self.is_train:
+            shuffle(self.filenames)
 
     def load_mat(self, filename):
         return sio.loadmat(filename)
